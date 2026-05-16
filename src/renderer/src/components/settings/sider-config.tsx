@@ -51,10 +51,16 @@ const SiderConfig: FC = () => {
     usageCardStatus: appConfig?.usageCardStatus || 'col-span-1'
   }
 
+  const cardStatusEntries = Object.entries(cardStatus)
+
   return (
     <SettingCard title={t('sider.title')}>
-      {Object.entries(cardStatus).map(([key, value]) => (
-        <SettingItem key={key} title={t(titleMap[key])}>
+      {cardStatusEntries.map(([key, value], index) => (
+        <SettingItem
+          key={key}
+          title={t(titleMap[key])}
+          divider={index < cardStatusEntries.length - 1}
+        >
           <RadioGroup
             orientation="horizontal"
             value={value}
