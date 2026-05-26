@@ -147,7 +147,11 @@ async function killOldMihomoProcesses(): Promise<void> {
   try {
     const execFilePromise = promisify(execFile)
     const coreNames = new Set(['mihomo.exe', 'mihomo-alpha.exe', 'mihomo-smart.exe'])
-    const { stdout } = await execFilePromise('tasklist', ['/FO', 'CSV', '/NH'])
+    const { stdout } = await execFilePromise('tasklist', ['/FO', 'CSV', '/NH'], {
+      windowsHide: true,
+      timeout: 3000,
+      maxBuffer: 4 * 1024 * 1024
+    })
 
     const pids = stdout
       .split('\n')
@@ -445,13 +449,7 @@ export async function ensureRuntimeFiles(): Promise<void> {
 export async function init(): Promise<void> {
   const { sysProxy } = await getAppConfig()
 
-  const initTasks: Promise<void>[] = [
-    (async (): Promise<void> => {
-      await ensureRuntimeFiles()
-      await Promise.all([startSubStoreFrontendServer(), startSubStoreBackendServer()])
-    })(),
-    startSSIDCheck()
-  ]
+  const initTasks: Promise<void>[] = [ensureRuntimeFiles(), startSSIDCheck()]
 
   initTasks.push(
     (async (): Promise<void> => {
@@ -468,4 +466,9 @@ export async function init(): Promise<void> {
 
   await Promise.all(initTasks)
   initDeeplink()
+}
+
+export async function startSubStoreServices(): Promise<void> {
+  await ensureRuntimeFiles()
+  await Promise.all([startSubStoreFrontendServer(), startSubStoreBackendServer()])
 }

@@ -308,7 +308,7 @@ function setupCoreListeners(
       if (process.platform === 'win32') {
         managerLogger.info('Attempting Windows pipe cleanup and retry...')
         try {
-          await cleanupWindowsNamedPipes()
+          await cleanupWindowsNamedPipes(true)
           await new Promise((r) => setTimeout(r, 2000))
         } catch (cleanupError) {
           managerLogger.error('Pipe cleanup failed:', cleanupError)
@@ -350,10 +350,12 @@ function setupCoreListeners(
 
       await waitForCoreReady()
       await getAxios(true)
-      await startMihomoTraffic()
-      await startMihomoConnections()
-      await startMihomoLogs()
-      await startMihomoMemory()
+      await Promise.all([
+        startMihomoTraffic(),
+        startMihomoConnections(),
+        startMihomoLogs(),
+        startMihomoMemory()
+      ])
       retry = 10
     }
   })
@@ -380,12 +382,12 @@ export async function startCore(detached = false, skipStop = false): Promise<Pro
 
 // 停止核心
 export async function stopCore(force = false): Promise<void> {
-  try {
-    if (!force) {
+  if (!force && process.platform === 'darwin') {
+    try {
       await recoverDNS()
+    } catch (error) {
+      managerLogger.error('recover dns failed', error)
     }
-  } catch (error) {
-    managerLogger.error('recover dns failed', error)
   }
 
   if (child) {

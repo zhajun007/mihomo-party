@@ -133,41 +133,64 @@ async function checkHighPrivilegeMihomoProcess(): Promise<boolean> {
 
   try {
     if (process.platform === 'win32') {
-      for (const executable of mihomoExecutables) {
-        try {
-          const { stdout } = await execPromise(
-            `chcp 65001 >nul 2>&1 && tasklist /FI "IMAGENAME eq ${executable}" /FO CSV`,
-            { encoding: 'utf8' }
-          )
-          const lines = stdout.split('\n').filter((line) => line.includes(executable))
+      let stdout = ''
+      try {
+        const result = await execFilePromise('tasklist', ['/FO', 'CSV', '/NH'], {
+          windowsHide: true,
+          timeout: 3000,
+          maxBuffer: 4 * 1024 * 1024
+        })
+        stdout = result.stdout
+      } catch (error) {
+        managerLogger.error('Failed to list processes via tasklist', error)
+        return false
+      }
 
-          if (lines.length > 0) {
-            managerLogger.info(`Found ${lines.length} ${executable} processes running`)
-
-            for (const line of lines) {
-              const parts = line.split(',')
-              if (parts.length >= 2) {
-                const pid = parts[1].replace(/"/g, '').trim()
-                try {
-                  const { stdout: processInfo } = await execPromise(
-                    `powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Process -Id ${pid} | Select-Object Name,Id,Path,CommandLine | ConvertTo-Json"`,
-                    { encoding: 'utf8' }
-                  )
-                  const processJson = JSON.parse(processInfo)
-                  managerLogger.info(`Process ${pid} info: ${processInfo.substring(0, 200)}`)
-
-                  if (processJson.Name.includes('mihomo') && processJson.Path === null) {
-                    return true
-                  }
-                } catch {
-                  managerLogger.info(`Cannot get info for process ${pid}, might be high privilege`)
-                }
-              }
-            }
-          }
-        } catch (error) {
-          managerLogger.error(`Failed to check ${executable} processes`, error)
+      const candidatePids: { pid: string; image: string }[] = []
+      for (const line of stdout.split('\n')) {
+        const match = line.match(/^"([^"]+)","(\d+)"/)
+        if (!match) continue
+        const image = match[1].toLowerCase()
+        if (mihomoExecutables.includes(image)) {
+          candidatePids.push({ pid: match[2], image })
         }
+      }
+
+      if (candidatePids.length === 0) {
+        managerLogger.info('No mihomo processes found running')
+        return false
+      }
+
+      managerLogger.info(`Found ${candidatePids.length} mihomo processes running`)
+
+      const pidArgs = candidatePids.map(({ pid }) => pid).join(',')
+      try {
+        const { stdout: processInfo } = await execFilePromise(
+          'powershell',
+          [
+            '-NoProfile',
+            '-Command',
+            `Get-Process -Id ${pidArgs} -ErrorAction SilentlyContinue | Select-Object Name,Id,Path | ConvertTo-Json -Compress`
+          ],
+          { windowsHide: true, timeout: 4000, maxBuffer: 4 * 1024 * 1024 }
+        )
+
+        if (!processInfo.trim()) return false
+
+        const parsed = JSON.parse(processInfo)
+        const list = Array.isArray(parsed) ? parsed : [parsed]
+        for (const proc of list) {
+          if (
+            proc &&
+            typeof proc.Name === 'string' &&
+            proc.Name.toLowerCase().includes('mihomo') &&
+            proc.Path === null
+          ) {
+            return true
+          }
+        }
+      } catch (error) {
+        managerLogger.info('PowerShell process inspection failed', error)
       }
     } else {
       let foundProcesses = false

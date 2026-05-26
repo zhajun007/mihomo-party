@@ -1,9 +1,10 @@
-import { spawn, exec, execSync } from 'child_process'
+import { spawn, exec, execFileSync } from 'child_process'
 import { promisify } from 'util'
 import { stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { app, powerMonitor } from 'electron'
 import { stopCore, cleanupCoreWatcher } from './core/manager'
+import { primeAdminPrivilegesCache } from './core/admin'
 import { triggerSysProxy, disableSysProxySync } from './sys/sysproxy'
 import { exePath } from './utils/dirs'
 
@@ -55,15 +56,19 @@ export function setupPlatformSpecifics(): void {
     app.commandLine.appendSwitch('in-process-gpu')
   }
 
-  if (process.platform === 'win32' && isWindowsElevatedSync()) {
-    app.commandLine.appendSwitch('disable-gpu-sandbox')
+  if (process.platform === 'win32') {
+    const elevated = isWindowsElevatedSync()
+    if (elevated) {
+      primeAdminPrivilegesCache(true)
+      app.commandLine.appendSwitch('disable-gpu-sandbox')
+    }
   }
 }
 
 function isWindowsElevatedSync(): boolean {
   if (process.platform !== 'win32') return false
   try {
-    execSync('fltmc', { stdio: 'ignore', windowsHide: true })
+    execFileSync('fltmc', [], { stdio: 'ignore', windowsHide: true, timeout: 800 })
     return true
   } catch {
     return false
@@ -107,7 +112,7 @@ export function setupAppLifecycle(): void {
         }),
         stopCore()
       ]).then(() => {}),
-      3000
+      1200
     )
   }
 
